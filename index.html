@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ONE QADAM</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; background: #09080F; color: #fff;
@@ -26,6 +26,7 @@
   .msg { margin-top: 12px; font-size: 14px; min-height: 20px; }
   .err { color: #ff6b81; } .ok { color: #6be39a; }
   .hidden { display: none; }
+  .center { text-align: center; color: #8d86a3; padding: 20px 0; }
   .row { display: flex; justify-content: space-between; padding: 10px 0;
          border-bottom: 1px solid #262234; }
   .row span:first-child { color: #8d86a3; }
@@ -36,7 +37,9 @@
   <h1>ONE QADAM</h1>
   <p class="tag">Study. Play. Achieve.</p>
 
-  <div id="auth">
+  <div id="loading" class="center">Жүктелуде...</div>
+
+  <div id="auth" class="hidden">
     <div class="tabs">
       <button class="tab active" id="tab-login" onclick="setMode('login')">Кіру</button>
       <button class="tab" id="tab-register" onclick="setMode('register')">Тіркелу</button>
@@ -60,11 +63,22 @@
 
 <script>
 const SUPABASE_URL = "https://zjzjtntuxwujjndifhcb.supabase.co";
-const SUPABASE_KEY = "МҰНДА_КІЛТТІ_ҚОЙЫҢЫЗ";
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_KEY = "sb_publishable_amRUD3FA7_4aTogxndPaEA_1W0K6lxq";
 
-let mode = "login";
 const $ = (id) => document.getElementById(id);
+let db = null;
+let mode = "login";
+
+function showScreen(name) {
+  ["loading", "auth", "home"].forEach((s) =>
+    $(s).classList.toggle("hidden", s !== name));
+}
+
+function say(text, type) {
+  const el = $("msg");
+  el.textContent = text;
+  el.className = "msg " + (type || "");
+}
 
 function setMode(m) {
   mode = m;
@@ -75,23 +89,19 @@ function setMode(m) {
   say("", "");
 }
 
-function say(text, type) {
-  const el = $("msg");
-  el.textContent = text;
-  el.className = "msg " + (type || "");
-}
-
 function friendlyError(message) {
   const m = (message || "").toLowerCase();
   if (m.includes("invalid login")) return "Email немесе құпиясөз қате.";
   if (m.includes("not confirmed")) return "Email расталмаған. Поштаңыздағы хатты тексеріңіз.";
   if (m.includes("already registered")) return "Бұл email тіркелген. «Кіру» бөлімін таңдаңыз.";
-  if (m.includes("at least 6")) return "Құпиясөз кемінде 6 таңба болуы керек.";
+  if (m.includes("at least 6") || m.includes("weak")) return "Құпиясөз кемінде 6 таңба болуы керек.";
   if (m.includes("rate limit")) return "Тым көп әрекет. Біраз күте тұрыңыз.";
+  if (m.includes("failed to fetch")) return "Интернетпен байланыс жоқ немесе кілт қате.";
   return "Қате: " + message;
 }
 
 async function submitAuth() {
+  if (!db) return;
   const email = $("email").value.trim();
   const password = $("password").value;
   const fullName = $("name").value.trim();
@@ -101,47 +111,82 @@ async function submitAuth() {
   $("submit").disabled = true;
   say("Күте тұрыңыз...", "");
 
-  if (mode === "login") {
-    const { error } = await db.auth.signInWithPassword({ email, password });
-    if (error) say(friendlyError(error.message), "err");
-  } else {
-    const { data, error } = await db.auth.signUp({
-      email, password, options: { data: { full_name: fullName } }
-    });
-    if (error) say(friendlyError(error.message), "err");
-    else if (!data.session) say("Поштаңызға растау хаты жіберілді. Хаттағы сілтемені басыңыз, сосын «Кіру» бөліміне өтіңіз.", "ok");
+  try {
+    if (mode === "login") {
+      const { error } = await db.auth.signInWithPassword({ email, password });
+      if (error) say(friendlyError(error.message), "err");
+    } else {
+      const { data, error } = await db.auth.signUp({
+        email, password, options: { data: { full_name: fullName } }
+      });
+      if (error) say(friendlyError(error.message), "err");
+      else if (!data.session) say("Поштаңызға растау хаты жіберілді. Хаттағы сілтемені басыңыз, сосын «Кіру» бөліміне өтіңіз.", "ok");
+    }
+  } catch (e) {
+    say(friendlyError(String(e && e.message ? e.message : e)), "err");
   }
   $("submit").disabled = false;
 }
 
+async function loadProfile(userId) {
+  for (let i = 0; i < 3; i++) {
+    const { data } = await db.from("profiles")
+      .select("full_name, role, xp").eq("id", userId).maybeSingle();
+    if (data) return data;
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  return null;
+}
+
 async function showHome(user) {
-  const { data, error } = await db.from("profiles")
-    .select("full_name, role, xp").eq("id", user.id).single();
-  $("auth").classList.add("hidden");
-  $("home").classList.remove("hidden");
-  if (error || !data) {
+  const profile = await loadProfile(user.id);
+  showScreen("home");
+  $("useremail").textContent = user.email;
+  if (!profile) {
     $("hello").textContent = "Профиль табылмады";
+    $("role").textContent = "-";
+    $("xp").textContent = "-";
     return;
   }
-  $("hello").textContent = "Сәлем, " + (data.full_name || "оқушы") + "!";
-  $("role").textContent = data.role === "admin" ? "Әкімші" : "Оқушы";
-  $("xp").textContent = data.xp;
-  $("useremail").textContent = user.email;
+  $("hello").textContent = "Сәлем, " + (profile.full_name || "оқушы") + "!";
+  $("role").textContent = profile.role === "admin" ? "Әкімші" : "Оқушы";
+  $("xp").textContent = profile.xp;
 }
 
 async function logout() {
   await db.auth.signOut();
 }
 
-db.auth.onAuthStateChange((event, session) => {
-  if (session && session.user) {
-    showHome(session.user);
-  } else {
-    $("home").classList.add("hidden");
-    $("auth").classList.remove("hidden");
-    $("password").value = "";
+function init() {
+  if (typeof supabase === "undefined") {
+    showScreen("auth");
+    say("Supabase кітапханасы жүктелмеді. Интернетті тексеріп, бетті жаңартыңыз.", "err");
+    return;
   }
-});
+  if (!SUPABASE_KEY || SUPABASE_KEY.includes("МҰНДА")) {
+    showScreen("auth");
+    say("Supabase кілті қойылмаған. index.html файлына кілтті қойыңыз.", "err");
+    return;
+  }
+  db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  db.auth.onAuthStateChange((event, session) => {
+    setTimeout(() => {
+      if (session && session.user) {
+        showHome(session.user);
+      } else {
+        $("password").value = "";
+        showScreen("auth");
+      }
+    }, 0);
+  });
+
+  setTimeout(() => {
+    if (!$("loading").classList.contains("hidden")) showScreen("auth");
+  }, 4000);
+}
+
+init();
 </script>
 </body>
 </html>
