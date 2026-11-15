@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ONE QADAM</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: #09080F; color: #fff;
+         font-family: -apple-system, system-ui, sans-serif; display: flex;
+         align-items: center; justify-content: center; padding: 16px; }
+  .card { background: #1A1725; border-radius: 20px; padding: 28px;
+          width: 100%; max-width: 420px; }
+  h1 { margin: 0 0 4px; color: #C5A3FF; font-size: 28px; }
+  .tag { color: #8d86a3; margin: 0 0 20px; font-size: 14px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { flex: 1; padding: 10px; border: 0; border-radius: 12px;
+         background: #262234; color: #fff; font-size: 16px; cursor: pointer; }
+  .tab.active { background: #9747FF; }
+  input { width: 100%; padding: 14px; margin-bottom: 12px; border-radius: 12px;
+          border: 1px solid #3a3450; background: #09080F; color: #fff; font-size: 16px; }
+  .main { width: 100%; padding: 14px; border: 0; border-radius: 12px;
+          background: #9747FF; color: #fff; font-size: 17px; cursor: pointer; }
+  .main:disabled { opacity: .6; }
+  .msg { margin-top: 12px; font-size: 14px; min-height: 20px; }
+  .err { color: #ff6b81; } .ok { color: #6be39a; }
+  .hidden { display: none; }
+  .row { display: flex; justify-content: space-between; padding: 10px 0;
+         border-bottom: 1px solid #262234; }
+  .row span:first-child { color: #8d86a3; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ONE QADAM</h1>
+  <p class="tag">Study. Play. Achieve.</p>
+
+  <div id="auth">
+    <div class="tabs">
+      <button class="tab active" id="tab-login" onclick="setMode('login')">Кіру</button>
+      <button class="tab" id="tab-register" onclick="setMode('register')">Тіркелу</button>
+    </div>
+    <input id="name" class="hidden" type="text" placeholder="Аты-жөніңіз" autocomplete="name">
+    <input id="email" type="email" placeholder="Email" autocomplete="email">
+    <input id="password" type="password" placeholder="Құпиясөз (кемінде 6 таңба)" autocomplete="current-password">
+    <button class="main" id="submit" onclick="submitAuth()">Кіру</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div id="home" class="hidden">
+    <h2 id="hello" style="margin-top:0"></h2>
+    <div class="row"><span>Рөл</span><span id="role"></span></div>
+    <div class="row"><span>XP</span><span id="xp"></span></div>
+    <div class="row"><span>Email</span><span id="useremail"></span></div>
+    <br>
+    <button class="main" style="background:#262234" onclick="logout()">Шығу</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://zjzjtntuxwujjndifhcb.supabase.co";
+const SUPABASE_KEY = "МҰНДА_КІЛТТІ_ҚОЙЫҢЫЗ";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let mode = "login";
+const $ = (id) => document.getElementById(id);
+
+function setMode(m) {
+  mode = m;
+  $("tab-login").classList.toggle("active", m === "login");
+  $("tab-register").classList.toggle("active", m === "register");
+  $("name").classList.toggle("hidden", m === "login");
+  $("submit").textContent = m === "login" ? "Кіру" : "Тіркелу";
+  say("", "");
+}
+
+function say(text, type) {
+  const el = $("msg");
+  el.textContent = text;
+  el.className = "msg " + (type || "");
+}
+
+function friendlyError(message) {
+  const m = (message || "").toLowerCase();
+  if (m.includes("invalid login")) return "Email немесе құпиясөз қате.";
+  if (m.includes("not confirmed")) return "Email расталмаған. Поштаңыздағы хатты тексеріңіз.";
+  if (m.includes("already registered")) return "Бұл email тіркелген. «Кіру» бөлімін таңдаңыз.";
+  if (m.includes("at least 6")) return "Құпиясөз кемінде 6 таңба болуы керек.";
+  if (m.includes("rate limit")) return "Тым көп әрекет. Біраз күте тұрыңыз.";
+  return "Қате: " + message;
+}
+
+async function submitAuth() {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  const fullName = $("name").value.trim();
+  if (!email || !password) { say("Email мен құпиясөзді жазыңыз.", "err"); return; }
+  if (mode === "register" && !fullName) { say("Аты-жөніңізді жазыңыз.", "err"); return; }
+
+  $("submit").disabled = true;
+  say("Күте тұрыңыз...", "");
+
+  if (mode === "login") {
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    if (error) say(friendlyError(error.message), "err");
+  } else {
+    const { data, error } = await db.auth.signUp({
+      email, password, options: { data: { full_name: fullName } }
+    });
+    if (error) say(friendlyError(error.message), "err");
+    else if (!data.session) say("Поштаңызға растау хаты жіберілді. Хаттағы сілтемені басыңыз, сосын «Кіру» бөліміне өтіңіз.", "ok");
+  }
+  $("submit").disabled = false;
+}
+
+async function showHome(user) {
+  const { data, error } = await db.from("profiles")
+    .select("full_name, role, xp").eq("id", user.id).single();
+  $("auth").classList.add("hidden");
+  $("home").classList.remove("hidden");
+  if (error || !data) {
+    $("hello").textContent = "Профиль табылмады";
+    return;
+  }
+  $("hello").textContent = "Сәлем, " + (data.full_name || "оқушы") + "!";
+  $("role").textContent = data.role === "admin" ? "Әкімші" : "Оқушы";
+  $("xp").textContent = data.xp;
+  $("useremail").textContent = user.email;
+}
+
+async function logout() {
+  await db.auth.signOut();
+}
+
+db.auth.onAuthStateChange((event, session) => {
+  if (session && session.user) {
+    showHome(session.user);
+  } else {
+    $("home").classList.add("hidden");
+    $("auth").classList.remove("hidden");
+    $("password").value = "";
+  }
+});
+</script>
+</body>
+</html>
